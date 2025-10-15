@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+ This file defines the paths that are accessible through the FileProvider.
+ It's a security measure to prevent granting access to unintended files/directories.
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+     The 'external-cache-path' corresponds to the directory returned by Context.getExternalCacheDir().
+     'name' is a virtual subdirectory you'll use in your code to refer to this path.
+     'path' specifies the actual subdirectory within the root path. "." means the root itself.
+    -->
+    <external-cache-path
+        name="my_images"
+        path="." />
+</paths>
