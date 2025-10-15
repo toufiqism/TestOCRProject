@@ -11,7 +11,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -88,7 +91,8 @@ fun CameraCaptureScreen(viewModel: OCRViewModel = viewModel()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -99,7 +103,7 @@ fun CameraCaptureScreen(viewModel: OCRViewModel = viewModel()) {
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(bottom = 32.dp)
+                    .padding(bottom = 32.dp, top = 32.dp)
             )
         } else {
             Box(
@@ -143,7 +147,10 @@ fun CameraCaptureScreen(viewModel: OCRViewModel = viewModel()) {
             }
 
             is UploadState.Loading -> {
-                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     CircularProgressIndicator()
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Uploading...")
@@ -151,9 +158,13 @@ fun CameraCaptureScreen(viewModel: OCRViewModel = viewModel()) {
             }
 
             is UploadState.Success -> {
-                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text("Extracted Text: ${state.extractedText ?: "No text found."}")
-                    Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = {
                         viewModel.resetState()
                         imageUri = null
@@ -166,7 +177,12 @@ fun CameraCaptureScreen(viewModel: OCRViewModel = viewModel()) {
             }
 
             is UploadState.Error -> {
-                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text("Error: ${state.message}", color = MaterialTheme.colorScheme.error)
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = {
