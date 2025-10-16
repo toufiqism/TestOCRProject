@@ -33,9 +33,8 @@ object RetrofitInstance {
      * @param context Application context to access preferences
      * @return ImageExtractorAPI instance configured with current base URL
      */
-    fun getApi(context: Context): ImageExtractorAPI {
-        val preferencesManager = PreferencesManager.getInstance(context)
-        val baseUrl = preferencesManager.getBaseUrl()
+    fun getApi(baseUrl: String): ImageExtractorAPI {
+
         
         // Recreate API instance if base URL might have changed
         // For production, consider caching based on URL

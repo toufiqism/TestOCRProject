@@ -19,9 +19,9 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.FileOutputStream
 
-class OCRViewModel(application: Application) : AndroidViewModel(application) {
-    private val appContext get() = getApplication<Application>().applicationContext
-//    private val ocr = TesseractOCR(appContext)
+class OCRViewModel() : ViewModel() {
+
+    //    private val ocr = TesseractOCR(appContext)
 //    var recognizedText = mutableStateOf("")
 //
 //    init {
@@ -55,21 +55,14 @@ class OCRViewModel(application: Application) : AndroidViewModel(application) {
 //        }
 //    }
 //
-    class Factory(private val context: Context) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            @Suppress("UNCHECKED_CAST")
-            return OCRViewModel(context.applicationContext as Application) as T
-        }
-    }
-
     private val _uiState = MutableStateFlow<UploadState>(UploadState.Idle)
     val uiState = _uiState.asStateFlow()
 
-    fun uploadImage(imageFile: File) {
+    fun uploadImage(imageFile: File, baseUrl: String) {
         viewModelScope.launch {
             _uiState.value = UploadState.Loading
             try {
-                val api = RetrofitInstance.getApi(appContext)
+                val api = RetrofitInstance.getApi(baseUrl)
                 val requestFile = imageFile.asRequestBody("image/*".toMediaTypeOrNull())
                 val body = MultipartBody.Part.createFormData("image", imageFile.name, requestFile)
 
@@ -95,6 +88,7 @@ class OCRViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = UploadState.Idle
     }
 }
+
 // 4. Define UI State for the upload process
 sealed interface UploadState {
     object Idle : UploadState
