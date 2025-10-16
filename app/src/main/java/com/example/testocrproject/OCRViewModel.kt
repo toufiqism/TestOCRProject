@@ -7,7 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.testocrproject.RetrofitInstance.api
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,7 +17,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.FileOutputStream
 
-class OCRViewModel() : ViewModel() {
+class OCRViewModel(private val context: Context) : ViewModel() {
 //    private val ocr = TesseractOCR(appContext)
 //    var recognizedText = mutableStateOf("")
 //
@@ -53,12 +52,12 @@ class OCRViewModel() : ViewModel() {
 //        }
 //    }
 //
-//    class Factory(private val context: Context) : ViewModelProvider.Factory {
-//        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-//            @Suppress("UNCHECKED_CAST")
-//            return OCRViewModel(context.applicationContext) as T
-//        }
-//    }
+    class Factory(private val context: Context) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return OCRViewModel(context.applicationContext) as T
+        }
+    }
 
     private val _uiState = MutableStateFlow<UploadState>(UploadState.Idle)
     val uiState = _uiState.asStateFlow()
@@ -67,6 +66,7 @@ class OCRViewModel() : ViewModel() {
         viewModelScope.launch {
             _uiState.value = UploadState.Loading
             try {
+                val api = RetrofitInstance.getApi(context)
                 val requestFile = imageFile.asRequestBody("image/*".toMediaTypeOrNull())
                 val body = MultipartBody.Part.createFormData("image", imageFile.name, requestFile)
 

@@ -11,6 +11,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,13 +28,22 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CameraCaptureScreen(viewModel: OCRViewModel = viewModel()) {
+fun CameraCaptureScreen(
+    onNavigateToSettings: () -> Unit = {}
+) {
     val context = LocalContext.current
+    val viewModel: OCRViewModel = viewModel(
+        factory = OCRViewModel.Factory(context)
+    )
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var imageFile by remember { mutableStateOf<File?>(null) }
     val hasImage by remember { derivedStateOf { imageUri != null } }
     val uiState by viewModel.uiState.collectAsState()
+    
+    val preferencesManager = remember { PreferencesManager.getInstance(context) }
+    val currentBaseUrl by remember { mutableStateOf(preferencesManager.getBaseUrl()) }
 
     fun getUriFromFile(): Pair<Uri, File> {
         val file = context.createImageFile()
@@ -84,14 +95,35 @@ fun CameraCaptureScreen(viewModel: OCRViewModel = viewModel()) {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("OCR Image Extractor") },
+                actions = {
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
         if (hasImage && imageUri != null) {
             Image(
                 painter = rememberAsyncImagePainter(model = imageUri),
@@ -190,6 +222,7 @@ fun CameraCaptureScreen(viewModel: OCRViewModel = viewModel()) {
                     }
                 }
             }
+        }
         }
     }
 }
