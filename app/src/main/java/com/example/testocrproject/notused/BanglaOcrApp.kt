@@ -1,9 +1,11 @@
-package com.example.testocrproject
+package com.example.testocrproject.notused
 
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -216,7 +218,7 @@ private class BanglaTextAnalyzer(
 
     private val recognizer = TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
 
-    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+    @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
         if (mediaImage != null) {

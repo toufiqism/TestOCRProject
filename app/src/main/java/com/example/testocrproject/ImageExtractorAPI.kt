@@ -34,7 +34,7 @@ object RetrofitInstance {
             .build()
 
         Retrofit.Builder()
-            .baseUrl("http://192.168.103.250:5000/") // Emulator localhost
+            .baseUrl("http://192.168.103.82:5000/") // Emulator localhost
             .addConverterFactory(GsonConverterFactory.create())
             .client(okHttpClient)
             .build()

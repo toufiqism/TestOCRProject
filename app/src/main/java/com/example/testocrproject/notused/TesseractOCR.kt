@@ -1,4 +1,4 @@
-package com.example.testocrproject
+package com.example.testocrproject.notused
 
 import android.content.Context
 import android.graphics.Bitmap

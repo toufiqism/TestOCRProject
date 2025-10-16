@@ -1,8 +1,10 @@
-package com.example.testocrproject
+package com.example.testocrproject.notused
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import kotlin.math.roundToInt
 
@@ -36,9 +38,9 @@ object ImagePreprocessor {
         val bmpGrayscale = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmpGrayscale)
         val paint = Paint()
-        val matrix = android.graphics.ColorMatrix()
+        val matrix = ColorMatrix()
         matrix.setSaturation(0f)
-        val filter = android.graphics.ColorMatrixColorFilter(matrix)
+        val filter = ColorMatrixColorFilter(matrix)
         paint.colorFilter = filter
         c.drawBitmap(src, 0f, 0f, paint)
         return bmpGrayscale
