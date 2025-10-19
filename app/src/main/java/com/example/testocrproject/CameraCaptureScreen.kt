@@ -3,7 +3,11 @@ package com.example.testocrproject
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.Build
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,7 +44,30 @@ fun CameraCaptureScreen(
     val hasImage by remember { derivedStateOf { imageUri != null } }
     val uiState by viewModel.uiState.collectAsState()
     val preferencesManager = remember { PreferencesManager.getInstance(context) }
-    val currentBaseUrl by remember { mutableStateOf(preferencesManager.getBaseUrl()) }
+
+    // FIX: Use derivedStateOf to always get current base URL (fixes memory leak)
+    val currentBaseUrl by remember { derivedStateOf { preferencesManager.getBaseUrl() } }
+
+    // Cleanup function for temporary files
+    fun cleanupTempFile(file: File?) {
+        file?.let {
+            try {
+                if (it.exists()) {
+                    it.delete()
+                }
+            } catch (e: Exception) {
+                // Silently handle cleanup errors
+                Log.e("ERROR", e.stackTraceToString())
+            }
+        }
+    }
+
+    // Cleanup on disposal
+    DisposableEffect(Unit) {
+        onDispose {
+            cleanupTempFile(imageFile)
+        }
+    }
 
     fun getUriFromFile(): Pair<Uri, File> {
         val file = context.createImageFile()
@@ -56,10 +83,22 @@ fun CameraCaptureScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             if (success) {
                 Toast.makeText(context, "Image Captured!", Toast.LENGTH_SHORT).show()
-                imageFile?.let {
-                    viewModel.uploadImage(it, currentBaseUrl)
+                imageFile?.let { file ->
+                    // Check network before upload
+                    if (context.isNetworkAvailable()) {
+                        viewModel.uploadImage(file, currentBaseUrl)
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "No internet connection. Please check your network.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        viewModel.setError("No internet connection")
+                    }
                 }
             } else {
+                // Clean up file if capture was cancelled
+                cleanupTempFile(imageFile)
                 imageUri = null
                 imageFile = null
                 Toast.makeText(context, "Capture Cancelled.", Toast.LENGTH_SHORT).show()
@@ -72,9 +111,28 @@ fun CameraCaptureScreen(
         uri?.let {
             imageUri = it // Set URI for image preview
             // Create a file from the content URI to upload
-            val file = context.createFileFromUri(it)
-            imageFile = file
-            viewModel.uploadImage(file, currentBaseUrl)
+            try {
+                val file = context.createFileFromUri(it)
+                imageFile = file
+
+                // Check network before upload
+                if (context.isNetworkAvailable()) {
+                    viewModel.uploadImage(file, currentBaseUrl)
+                } else {
+                    Toast.makeText(
+                        context,
+                        "No internet connection. Please check your network.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    viewModel.setError("No internet connection")
+                }
+            } catch (e: Exception) {
+                Toast.makeText(
+                    context,
+                    "Failed to load image: ${e.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
@@ -194,6 +252,8 @@ fun CameraCaptureScreen(
                     ) {
                         Text("Extracted Text: ${state.extractedText ?: "No text found."}")
                         Button(onClick = {
+                            // Clean up previous file before resetting
+                            cleanupTempFile(imageFile)
                             viewModel.resetState()
                             imageUri = null
                             imageFile = null
@@ -214,6 +274,8 @@ fun CameraCaptureScreen(
                         Text("Error: ${state.message}", color = MaterialTheme.colorScheme.error)
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(onClick = {
+                            // Clean up previous file before resetting
+                            cleanupTempFile(imageFile)
                             viewModel.resetState()
                             imageUri = null
                             imageFile = null
@@ -237,18 +299,46 @@ fun Context.createImageFile(): File {
 /**
  * Creates a temporary file from a content URI.
  * This is useful for handling images selected from the gallery.
+ * @throws Exception if file creation or copying fails
  */
 fun Context.createFileFromUri(uri: Uri): File {
     val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
     val fileName = "JPEG_${timeStamp}"
     val tempFile = File.createTempFile(fileName, ".jpg", cacheDir)
 
-    // Copy the content from the URI's input stream to the temporary file
-    contentResolver.openInputStream(uri)?.use { inputStream ->
-        FileOutputStream(tempFile).use { outputStream ->
-            inputStream.copyTo(outputStream)
-        }
-    }
+    try {
+        // Copy the content from the URI's input stream to the temporary file
+        contentResolver.openInputStream(uri)?.use { inputStream ->
+            FileOutputStream(tempFile).use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+        } ?: throw IllegalStateException("Unable to open input stream for URI: $uri")
 
-    return tempFile
+        return tempFile
+    } catch (e: Exception) {
+        // Clean up file if copy fails
+        tempFile.delete()
+        throw e
+    }
+}
+
+/**
+ * Checks if network connectivity is available
+ * @return true if connected to network, false otherwise
+ */
+fun Context.isNetworkAvailable(): Boolean {
+    val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    } else {
+        @Suppress("DEPRECATION")
+        val networkInfo = connectivityManager.activeNetworkInfo
+        @Suppress("DEPRECATION")
+        return networkInfo != null && networkInfo.isConnected
+    }
 }

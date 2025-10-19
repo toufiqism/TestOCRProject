@@ -72,6 +72,9 @@ class OCRViewModel() : ViewModel() {
                     val extractedText = response.body()?.text
                     Log.d("OCR", "Extracted text: $extractedText")
                     _uiState.value = UploadState.Success(extractedText)
+                    
+                    // Clean up the temporary file after successful upload
+                    imageFile.delete()
                 } else {
                     val errorBody = response.errorBody()?.string()
                     Log.e("OCR", "Upload failed: $errorBody")
@@ -86,6 +89,10 @@ class OCRViewModel() : ViewModel() {
 
     fun resetState() {
         _uiState.value = UploadState.Idle
+    }
+    
+    fun setError(message: String) {
+        _uiState.value = UploadState.Error(message)
     }
 }
 
