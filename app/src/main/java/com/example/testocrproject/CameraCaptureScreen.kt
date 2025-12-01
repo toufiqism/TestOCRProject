@@ -44,6 +44,13 @@ fun CameraCaptureScreen(
     val hasImage by remember { derivedStateOf { imageUri != null } }
     val uiState by viewModel.uiState.collectAsState()
     val preferencesManager = remember { PreferencesManager.getInstance(context) }
+    val permissionHandler = remember { PermissionHandler(context) }
+    
+    // Permission dialogs state
+    var showCameraPermissionDialog by remember { mutableStateOf(false) }
+    var showStoragePermissionDialog by remember { mutableStateOf(false) }
+    var showPermissionDeniedDialog by remember { mutableStateOf(false) }
+    var deniedPermissionMessage by remember { mutableStateOf("") }
 
     // FIX: Use derivedStateOf to always get current base URL (fixes memory leak)
     val currentBaseUrl by remember { derivedStateOf { preferencesManager.getBaseUrl() } }
@@ -136,17 +143,66 @@ fun CameraCaptureScreen(
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    // Camera permission launcher
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            Toast.makeText(context, "Permission Granted", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Camera Permission Granted", Toast.LENGTH_SHORT).show()
             val (uri, file) = getUriFromFile()
             imageUri = uri
             imageFile = file
             cameraLauncher.launch(uri)
         } else {
-            Toast.makeText(context, "Permission Denied", Toast.LENGTH_SHORT).show()
+            // Permission denied
+            deniedPermissionMessage = "Camera permission is required to take photos. Please grant permission in app settings."
+            showPermissionDeniedDialog = true
+        }
+    }
+    
+    // Storage permission launcher
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.values.all { it }
+        if (allGranted) {
+            Toast.makeText(context, "Storage Permission Granted", Toast.LENGTH_SHORT).show()
+            galleryLauncher.launch("image/*")
+        } else {
+            // Permission denied
+            deniedPermissionMessage = "Storage permission is required to select images from gallery. Please grant permission in app settings."
+            showPermissionDeniedDialog = true
+        }
+    }
+    
+    // Function to handle camera button click
+    fun handleCameraClick() {
+        when {
+            permissionHandler.isCameraPermissionGranted() -> {
+                // Permission already granted, proceed with camera
+                val (uri, file) = getUriFromFile()
+                imageUri = uri
+                imageFile = file
+                cameraLauncher.launch(uri)
+            }
+            else -> {
+                // Request camera permission
+                showCameraPermissionDialog = true
+            }
+        }
+    }
+    
+    // Function to handle gallery button click
+    fun handleGalleryClick() {
+        when {
+            permissionHandler.isStoragePermissionGranted() -> {
+                // Permission already granted, proceed with gallery
+                galleryLauncher.launch("image/*")
+            }
+            else -> {
+                // Request storage permission
+                showStoragePermissionDialog = true
+            }
         }
     }
 
@@ -207,26 +263,10 @@ fun CameraCaptureScreen(
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Button(onClick = {
-                            val permissionCheckResult =
-                                ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.CAMERA
-                                )
-                            if (permissionCheckResult == PackageManager.PERMISSION_GRANTED) {
-                                val (uri, file) = getUriFromFile()
-                                imageUri = uri
-                                imageFile = file
-                                cameraLauncher.launch(uri)
-                            } else {
-                                permissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        }) {
+                        Button(onClick = { handleCameraClick() }) {
                             Text(text = "Take Picture")
                         }
-                        Button(onClick = {
-                            galleryLauncher.launch("image/*")
-                        }) {
+                        Button(onClick = { handleGalleryClick() }) {
                             Text(text = "Select Image")
                         }
                     }
@@ -286,7 +326,109 @@ fun CameraCaptureScreen(
                 }
             }
         }
+        
+        // Permission Dialogs
+        if (showCameraPermissionDialog) {
+            PermissionRationaleDialog(
+                title = "Camera Permission Required",
+                message = "This app needs camera permission to take photos for text extraction. Please grant camera permission to use this feature.",
+                onDismiss = { showCameraPermissionDialog = false },
+                onConfirm = {
+                    showCameraPermissionDialog = false
+                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            )
+        }
+        
+        if (showStoragePermissionDialog) {
+            PermissionRationaleDialog(
+                title = "Storage Permission Required",
+                message = "This app needs storage permission to access images from your gallery. Please grant storage permission to use this feature.",
+                onDismiss = { showStoragePermissionDialog = false },
+                onConfirm = {
+                    showStoragePermissionDialog = false
+                    val permissions = PermissionHandler.getStoragePermissions()
+                    storagePermissionLauncher.launch(permissions)
+                }
+            )
+        }
+        
+        if (showPermissionDeniedDialog) {
+            PermissionDeniedDialog(
+                message = deniedPermissionMessage,
+                onDismiss = { showPermissionDeniedDialog = false },
+                onOpenSettings = {
+                    showPermissionDeniedDialog = false
+                    context.openAppSettings()
+                }
+            )
+        }
     }
+}
+
+/**
+ * Dialog to explain why permission is needed
+ */
+@Composable
+private fun PermissionRationaleDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = title) },
+        text = { Text(text = message) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Grant Permission")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
+ * Dialog shown when permission is permanently denied
+ */
+@Composable
+private fun PermissionDeniedDialog(
+    message: String,
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Permission Denied") },
+        text = { Text(text = message) },
+        confirmButton = {
+            TextButton(onClick = onOpenSettings) {
+                Text("Open Settings")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
+ * Extension function to open app settings
+ */
+fun Context.openAppSettings() {
+    val intent = android.content.Intent(
+        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        android.net.Uri.fromParts("package", packageName, null)
+    )
+    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    startActivity(intent)
 }
 
 fun Context.createImageFile(): File {

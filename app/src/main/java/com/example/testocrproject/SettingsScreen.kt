@@ -284,7 +284,7 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp, vertical = 16.dp)
                 ) {
                     Text(
-                        text = ":5000",
+                        text = PreferencesManager.PORT,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium

@@ -1,6 +1,5 @@
 package com.example.testocrproject
 
-import android.content.Context
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -12,11 +11,17 @@ import retrofit2.http.POST
 import retrofit2.http.Part
 
 interface ImageExtractorAPI {
+//    @Multipart
+//    @POST("/extract_text")
+//    suspend fun uploadImage(
+//        @Part image: MultipartBody.Part
+//    ): Response<OCRResponse>
+
     @Multipart
-    @POST("/extract_text")
+    @POST("/detect")
     suspend fun uploadImage(
-        @Part image: MultipartBody.Part
-    ): Response<OCRResponse>
+        @Part file: MultipartBody.Part
+    ): Response<String>
 }
 
 data class OCRResponse(val text: String)

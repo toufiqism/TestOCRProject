@@ -64,12 +64,12 @@ class OCRViewModel() : ViewModel() {
             try {
                 val api = RetrofitInstance.getApi(baseUrl)
                 val requestFile = imageFile.asRequestBody("image/*".toMediaTypeOrNull())
-                val body = MultipartBody.Part.createFormData("image", imageFile.name, requestFile)
+                val body = MultipartBody.Part.createFormData("file", imageFile.name, requestFile)
 
                 val response = api.uploadImage(body)
 
                 if (response.isSuccessful) {
-                    val extractedText = response.body()?.text
+                    val extractedText = response.body()
                     Log.d("OCR", "Extracted text: $extractedText")
                     _uiState.value = UploadState.Success(extractedText)
                     

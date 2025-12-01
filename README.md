@@ -15,11 +15,13 @@ An Android application for Optical Character Recognition (OCR) that captures ima
 ## Requirements
 
 ### Android Device/Emulator
-- **Minimum SDK**: Android 10 (API level 29)
+- **Minimum SDK**: Android 6.0 (API level 23)
 - **Target SDK**: Android 14 (API level 36)
 - **Required Permissions**: 
-  - Camera permission for taking photos
-  - Storage access for gallery selection
+  - **Camera**: Required for taking photos directly from the app
+  - **Storage (API 23-32)**: READ_EXTERNAL_STORAGE and WRITE_EXTERNAL_STORAGE for accessing gallery
+  - **Storage (API 33+)**: READ_MEDIA_IMAGES for accessing photos on Android 13+
+  - All permissions are requested at runtime with proper rationale dialogs
 
 ### Backend API Server
 - Must be running and accessible on the configured network
@@ -77,16 +79,28 @@ The application communicates with a backend OCR API server. By default, it's con
 
 ## Usage
 
+### Permission Handling
+
+The app uses a robust permission system that gracefully handles all permission scenarios:
+
+1. **First Launch**: When you first use the camera or gallery features, the app will show a dialog explaining why the permission is needed
+2. **Permission Grant**: Tap "Grant Permission" to proceed with the system permission dialog
+3. **Permission Denial**: If you deny the permission, you can still use other features of the app
+4. **Permanent Denial**: If you permanently deny a permission, the app will show a dialog with an "Open Settings" button to help you enable it
+
 ### Capturing and Processing Images
 
 1. **Take a Photo**:
    - Tap the "Take Picture" button
-   - Grant camera permission if prompted
+   - If first time, you'll see a permission rationale dialog
+   - Grant camera permission when prompted
    - Capture an image with text
    - The app automatically uploads the image to the OCR API
 
 2. **Select from Gallery**:
    - Tap the "Select Image" button
+   - If first time, you'll see a permission rationale dialog
+   - Grant storage permission when prompted (type varies by Android version)
    - Choose an image from your device
    - The app automatically uploads the image to the OCR API
 
@@ -114,6 +128,7 @@ app/src/main/java/com/example/testocrproject/
 ├── OCRViewModel.kt              # ViewModel for managing OCR upload state
 ├── ImageExtractorAPI.kt         # Retrofit API interface and configuration
 ├── PreferencesManager.kt        # SharedPreferences management for settings
+├── PermissionHandler.kt         # Comprehensive permission handling utility
 ├── AssetUtils.kt                # Utility functions for assets
 └── ui/
     └── theme/                   # Material Design 3 theme configuration
@@ -124,14 +139,24 @@ app/src/main/java/com/example/testocrproject/
 
 ### Key Components
 
-#### 1. PreferencesManager
+#### 1. PermissionHandler
+- Comprehensive utility class for runtime permission management
+- Supports Android 6.0+ (API 23+) permission model
+- Handles both camera and storage permissions
+- Automatically detects Android version and requests appropriate storage permissions:
+  - API 23-32: READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
+  - API 33+: READ_MEDIA_IMAGES
+- Provides methods to check permission status and get denied permissions
+- Null-safe and follows Android best practices
+
+#### 2. PreferencesManager
 - Singleton pattern for managing app preferences
 - Stores and retrieves API base URL configuration
 - Manages theme mode preferences (Light, Dark, System)
 - Validates IP address format
 - Provides default configuration
 
-#### 2. SettingsScreen
+#### 3. SettingsScreen
 - Material Design 3 UI for app configuration
 - **Theme Selection**: Beautiful card-based theme selector with radio buttons
 - **API Configuration**: IP address input with real-time validation
@@ -139,24 +164,29 @@ app/src/main/java/com/example/testocrproject/
 - Displays current base URL and helpful information
 - Supports both dark and light themes with appropriate color schemes
 
-#### 3. RetrofitInstance
+#### 4. RetrofitInstance
 - Dynamic Retrofit configuration based on user settings
 - HTTP logging interceptor for debugging
 - Gson converter for JSON parsing
 - Automatically updates when settings change
 
-#### 4. OCRViewModel
+#### 5. OCRViewModel
 - Manages upload state (Idle, Loading, Success, Error)
 - Handles API communication using Kotlin coroutines
 - Provides clean state management for UI
 - Factory pattern for dependency injection
 
-#### 5. CameraCaptureScreen
+#### 6. CameraCaptureScreen
 - Camera integration using Android's ActivityResultContracts
 - Gallery selection support
-- Permission handling
+- **Comprehensive Permission Handling**:
+  - Permission rationale dialogs before requesting permissions
+  - Separate launchers for camera and storage permissions
+  - Handles permission denial gracefully with helpful dialogs
+  - "Open Settings" option for permanently denied permissions
 - FileProvider integration for secure file sharing
 - Coil for image loading and display
+- Network connectivity check before upload
 
 ## Dependencies
 
@@ -181,36 +211,75 @@ app/src/main/java/com/example/testocrproject/
 
 ## Permissions
 
-The following permissions are declared in `AndroidManifest.xml`:
+The application uses a comprehensive permission system that supports Android 6.0+ (API 23+):
+
+### Declared Permissions in `AndroidManifest.xml`:
 
 ```xml
+<!-- Camera Permission -->
 <uses-permission android:name="android.permission.CAMERA" />
 <uses-feature android:name="android.hardware.camera.any" android:required="true" />
+
+<!-- Storage Permissions for SDK < 33 (Android 12 and below) -->
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+    android:maxSdkVersion="32" />
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+    android:maxSdkVersion="32" />
+
+<!-- Storage Permissions for SDK >= 33 (Android 13 and above) -->
+<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+<!-- Network Permissions -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 ```
 
-Permissions are requested at runtime using the modern ActivityResultContracts API, ensuring graceful handling and user privacy.
+### Runtime Permission Handling:
+
+- **Modern API**: Uses ActivityResultContracts for permission requests
+- **User-Friendly Dialogs**: Shows rationale dialogs explaining why permissions are needed
+- **Graceful Degradation**: App remains functional even if some permissions are denied
+- **Settings Integration**: Provides direct link to app settings for permanently denied permissions
+- **Version-Aware**: Automatically requests appropriate permissions based on Android version
+- **Null-Safe**: All permission checks are null-safe and handle edge cases
+
+### Permission Flow:
+
+1. **User Action**: User taps "Take Picture" or "Select Image"
+2. **Permission Check**: App checks if required permission is already granted
+3. **Rationale Dialog**: If not granted, shows dialog explaining why permission is needed
+4. **System Dialog**: User grants or denies permission in system dialog
+5. **Fallback**: If denied, shows option to open app settings
 
 ## Error Handling
 
 The application implements comprehensive error handling:
 
-- **Network Errors**: Displays user-friendly error messages
+- **Network Errors**: Displays user-friendly error messages with connectivity checks
 - **API Errors**: Shows specific error information from the server
-- **Permission Denials**: Gracefully handles camera permission denial
+- **Permission Denials**: Gracefully handles all permission denials with helpful dialogs
+- **Permission Rationale**: Shows explanation dialogs before requesting permissions
+- **Permanent Denial**: Provides "Open Settings" button for permanently denied permissions
 - **Invalid Configuration**: Validates IP addresses before saving
 - **Null Safety**: All nullable values are properly checked
+- **File Operations**: Proper error handling for file creation and copying
+- **Memory Management**: Automatic cleanup of temporary files
 
 ## Best Practices Implemented
 
 ✅ **SOLID Principles**: Single responsibility, dependency injection, interface segregation
 ✅ **Null Safety**: Proper null checking throughout the codebase
 ✅ **Error Handling**: Comprehensive try-catch blocks and error states
-✅ **Permission Management**: Modern runtime permission handling
+✅ **Permission Management**: Modern runtime permission handling with rationale dialogs (API 23+)
+✅ **Version-Aware Permissions**: Automatically requests appropriate permissions based on Android version
 ✅ **State Management**: Clean state management with StateFlow
 ✅ **UI/UX**: Responsive UI with loading states and user feedback
+✅ **User Privacy**: Clear permission rationale and respect for user choices
+✅ **Graceful Degradation**: App remains functional even with denied permissions
 ✅ **Documentation**: Well-documented code with KDoc comments
 ✅ **Material Design 3**: Modern, accessible UI components
 ✅ **Separation of Concerns**: Clear separation between UI, business logic, and data layers
+✅ **Memory Management**: Automatic cleanup of temporary files and resources
 
 ## Development Notes
 
@@ -243,29 +312,40 @@ These ensure compatibility across different screen sizes and orientations.
 ## Recent Changes (Latest Update)
 
 ### Added Features:
-1. **Dark Mode Support**: Full dark mode implementation with three theme options
+1. **Comprehensive Permission System** (Latest Update):
+   - Runtime permission handling for Android 6.0+ (API 23+)
+   - Version-aware storage permissions (different for API 23-32 vs 33+)
+   - Permission rationale dialogs explaining why permissions are needed
+   - Graceful handling of denied permissions
+   - "Open Settings" integration for permanently denied permissions
+   - PermissionHandler utility class for reusable permission logic
+2. **Dark Mode Support**: Full dark mode implementation with three theme options
    - Light mode: Always use light theme
    - Dark mode: Always use dark theme
    - System mode: Follow device system settings
-2. **Settings Screen**: New screen for configuring API base URL and theme
-3. **Dynamic API Configuration**: API base URL now configurable via settings
-4. **Navigation System**: Simple navigation between Camera and Settings screens
-5. **Preferences Management**: SharedPreferences-based configuration storage
-6. **IP Validation**: Real-time validation of IP address format
-7. **Visual Feedback**: Success/error messages for user actions
-8. **Top App Bar**: Added app bar with settings button on main screen
-9. **Theme Persistence**: Theme preference persists across app restarts
+3. **Settings Screen**: New screen for configuring API base URL and theme
+4. **Dynamic API Configuration**: API base URL and port now configurable via settings
+5. **Navigation System**: Simple navigation between Camera and Settings screens
+6. **Preferences Management**: SharedPreferences-based configuration storage
+7. **IP Validation**: Real-time validation of IP address format
+8. **Visual Feedback**: Success/error messages for user actions
+9. **Top App Bar**: Added app bar with settings button on main screen
+10. **Theme Persistence**: Theme preference persists across app restarts
+11. **Network Check**: Validates network connectivity before uploads
 
 ### Modified Files:
+- `AndroidManifest.xml`: Added comprehensive permission declarations with version-specific maxSdkVersion
 - `MainActivity.kt`: Added navigation logic and theme management
-- `PreferencesManager.kt`: Added theme mode storage and retrieval with ThemeMode enum
+- `PreferencesManager.kt`: Added theme mode storage, configurable port constant
 - `SettingsScreen.kt`: Added theme selection UI with beautiful card-based options
-- `CameraCaptureScreen.kt`: Added settings button and proper ViewModel initialization
+- `CameraCaptureScreen.kt`: Complete permission system overhaul with dialogs and graceful handling
 - `ImageExtractorAPI.kt`: Made base URL dynamic based on preferences
 - `OCRViewModel.kt`: Added context parameter for API initialization
-- `README.md`: Updated with dark mode documentation
+- `build.gradle.kts`: Updated minSdk to 23 for broader device support
+- `README.md`: Comprehensive documentation with permission details
 
 ### New Files:
+- `PermissionHandler.kt`: Comprehensive utility for runtime permission management
 - `PreferencesManager.kt`: Manages app configuration (API + Theme)
 - `SettingsScreen.kt`: UI for API and theme configuration
 - `README.md`: This comprehensive documentation file
@@ -280,7 +360,13 @@ These ensure compatibility across different screen sizes and orientations.
 - Ensure your device/emulator can reach the server
 
 **Problem**: Camera permission denied
-- **Solution**: Go to device Settings > Apps > TestOCRProject > Permissions and enable Camera
+- **Solution**: The app will show a dialog with "Open Settings" button. Tap it to go directly to app permissions, or manually go to: Settings > Apps > TestOCRProject > Permissions > Enable Camera
+
+**Problem**: Storage/Gallery permission denied
+- **Solution**: Similar to camera, use the "Open Settings" button or manually enable READ_EXTERNAL_STORAGE (Android 12 and below) or READ_MEDIA_IMAGES (Android 13+) in app settings
+
+**Problem**: Permission dialog doesn't appear
+- **Solution**: You may have permanently denied the permission. Go to app settings and enable it manually, or clear app data and try again
 
 **Problem**: "Invalid IP address" error in settings
 - **Solution**: Enter a valid IPv4 address in the format: xxx.xxx.xxx.xxx (e.g., 192.168.1.100)
@@ -323,7 +409,8 @@ For issues, questions, or contributions, please [open an issue](your-repo-url/is
 
 ---
 
-**Last Updated**: October 16, 2025
+**Last Updated**: December 1, 2024
 **Version**: 1.0.0
-**Minimum Android Version**: Android 10 (API 29)
+**Minimum Android Version**: Android 6.0 (API 23)
+**Target Android Version**: Android 14 (API 36)
 

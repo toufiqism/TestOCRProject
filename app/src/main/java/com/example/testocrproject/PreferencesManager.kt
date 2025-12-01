@@ -13,9 +13,9 @@ class PreferencesManager(context: Context) {
         private const val PREFS_NAME = "ocr_app_preferences"
         private const val KEY_BASE_IP = "base_ip_address"
         private const val KEY_THEME_MODE = "theme_mode"
-        private const val DEFAULT_IP = "192.168.103.82"
+        private const val DEFAULT_IP = "192.168.102.240"
         private const val HTTP_PREFIX = "http://"
-        private const val PORT = ":5000"
+        const val PORT = ":8000"
         
         @Volatile
         private var INSTANCE: PreferencesManager? = null
