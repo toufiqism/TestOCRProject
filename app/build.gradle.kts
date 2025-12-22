@@ -80,6 +80,7 @@ dependencies {
     // Lifecycle
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
 
 // To recognize Latin script
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")

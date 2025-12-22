@@ -2,7 +2,6 @@ package com.example.testocrproject
 
 import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -23,8 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
 import java.io.File
@@ -39,111 +38,97 @@ fun CameraCaptureScreen(
 ) {
     val context = LocalContext.current
     val viewModel: OCRViewModel = viewModel()
+    
+    // Image state - kept at this level as it's needed for multiple child composables
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var imageFile by remember { mutableStateOf<File?>(null) }
-    val hasImage by remember { derivedStateOf { imageUri != null } }
-    val uiState by viewModel.uiState.collectAsState()
-    val preferencesManager = remember { PreferencesManager.getInstance(context) }
-    val permissionHandler = remember { PermissionHandler(context) }
     
-    // Permission dialogs state
+    // Permission dialogs state - kept minimal
     var showCameraPermissionDialog by remember { mutableStateOf(false) }
     var showStoragePermissionDialog by remember { mutableStateOf(false) }
     var showPermissionDeniedDialog by remember { mutableStateOf(false) }
     var deniedPermissionMessage by remember { mutableStateOf("") }
 
-    // FIX: Use derivedStateOf to always get current base URL (fixes memory leak)
-    val currentBaseUrl by remember { derivedStateOf { preferencesManager.getBaseUrl() } }
+    // Remember instances that don't change
+    val preferencesManager = remember { PreferencesManager.getInstance(context) }
+    val permissionHandler = remember { PermissionHandler(context) }
 
     // Cleanup function for temporary files
-    fun cleanupTempFile(file: File?) {
-        file?.let {
-            try {
-                if (it.exists()) {
-                    it.delete()
+    val cleanupTempFile: (File?) -> Unit = remember {
+        { file ->
+            file?.let {
+                try {
+                    if (it.exists()) it.delete()
+                } catch (e: Exception) {
+                    Log.e("ERROR", e.stackTraceToString())
                 }
-            } catch (e: Exception) {
-                // Silently handle cleanup errors
-                Log.e("ERROR", e.stackTraceToString())
             }
         }
     }
 
     // Cleanup on disposal
     DisposableEffect(Unit) {
-        onDispose {
-            cleanupTempFile(imageFile)
+        onDispose { cleanupTempFile(imageFile) }
+    }
+
+    // File creation helper - stable reference
+    val getUriFromFile: () -> Pair<Uri, File> = remember(context) {
+        {
+            val file = context.createImageFile()
+            val uri = FileProvider.getUriForFile(
+                Objects.requireNonNull(context),
+                context.packageName + ".provider",
+                file
+            )
+            uri to file
         }
     }
 
-    fun getUriFromFile(): Pair<Uri, File> {
-        val file = context.createImageFile()
-        val uri = FileProvider.getUriForFile(
-            Objects.requireNonNull(context),
-            context.packageName + ".provider",
-            file
-        )
-        return uri to file
-    }
-
-    val cameraLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-            if (success) {
-                Toast.makeText(context, "Image Captured!", Toast.LENGTH_SHORT).show()
-                imageFile?.let { file ->
-                    // Check network before upload
-                    if (context.isNetworkAvailable()) {
-                        viewModel.uploadImage(file, currentBaseUrl)
-                    } else {
-                        Toast.makeText(
-                            context,
-                            "No internet connection. Please check your network.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                        viewModel.setError("No internet connection")
-                    }
-                }
+    // Upload helper - reads baseUrl late
+    val uploadWithNetworkCheck: (File) -> Unit = remember(viewModel, preferencesManager, context) {
+        { file ->
+            if (context.isNetworkAvailable()) {
+                viewModel.uploadImage(file, preferencesManager.getBaseUrl())
             } else {
-                // Clean up file if capture was cancelled
-                cleanupTempFile(imageFile)
-                imageUri = null
-                imageFile = null
-                Toast.makeText(context, "Capture Cancelled.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    "No internet connection. Please check your network.",
+                    Toast.LENGTH_LONG
+                ).show()
+                viewModel.setError("No internet connection")
             }
         }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            Toast.makeText(context, "Image Captured!", Toast.LENGTH_SHORT).show()
+            imageFile?.let(uploadWithNetworkCheck)
+        } else {
+            cleanupTempFile(imageFile)
+            imageUri = null
+            imageFile = null
+            Toast.makeText(context, "Capture Cancelled.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            imageUri = it // Set URI for image preview
-            // Create a file from the content URI to upload
+            imageUri = it
             try {
                 val file = context.createFileFromUri(it)
                 imageFile = file
-
-                // Check network before upload
-                if (context.isNetworkAvailable()) {
-                    viewModel.uploadImage(file, currentBaseUrl)
-                } else {
-                    Toast.makeText(
-                        context,
-                        "No internet connection. Please check your network.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    viewModel.setError("No internet connection")
-                }
+                uploadWithNetworkCheck(file)
             } catch (e: Exception) {
-                Toast.makeText(
-                    context,
-                    "Failed to load image: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(context, "Failed to load image: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    // Camera permission launcher
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -154,76 +139,59 @@ fun CameraCaptureScreen(
             imageFile = file
             cameraLauncher.launch(uri)
         } else {
-            // Permission denied
             deniedPermissionMessage = "Camera permission is required to take photos. Please grant permission in app settings."
             showPermissionDeniedDialog = true
         }
     }
     
-    // Storage permission launcher
     val storagePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        if (allGranted) {
+        if (permissions.values.all { it }) {
             Toast.makeText(context, "Storage Permission Granted", Toast.LENGTH_SHORT).show()
             galleryLauncher.launch("image/*")
         } else {
-            // Permission denied
             deniedPermissionMessage = "Storage permission is required to select images from gallery. Please grant permission in app settings."
             showPermissionDeniedDialog = true
         }
     }
     
-    // Function to handle camera button click
-    fun handleCameraClick() {
-        when {
-            permissionHandler.isCameraPermissionGranted() -> {
-                // Permission already granted, proceed with camera
+    // Stable click handlers
+    val handleCameraClick: () -> Unit = remember(permissionHandler, cameraPermissionLauncher, cameraLauncher) {
+        {
+            if (permissionHandler.isCameraPermissionGranted()) {
                 val (uri, file) = getUriFromFile()
                 imageUri = uri
                 imageFile = file
                 cameraLauncher.launch(uri)
-            }
-            else -> {
-                // Request camera permission
+            } else {
                 showCameraPermissionDialog = true
             }
         }
     }
     
-    // Function to handle gallery button click
-    fun handleGalleryClick() {
-        when {
-            permissionHandler.isStoragePermissionGranted() -> {
-                // Permission already granted, proceed with gallery
+    val handleGalleryClick: () -> Unit = remember(permissionHandler, galleryLauncher) {
+        {
+            if (permissionHandler.isStoragePermissionGranted()) {
                 galleryLauncher.launch("image/*")
-            }
-            else -> {
-                // Request storage permission
+            } else {
                 showStoragePermissionDialog = true
             }
         }
     }
 
+    val handleReset: () -> Unit = remember(viewModel, cleanupTempFile) {
+        {
+            cleanupTempFile(imageFile)
+            viewModel.resetState()
+            imageUri = null
+            imageFile = null
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("OCR Image Extractor") },
-                actions = {
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
+            CameraCaptureTopBar(onNavigateToSettings = onNavigateToSettings)
         }
     ) { paddingValues ->
         Column(
@@ -235,140 +203,253 @@ fun CameraCaptureScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            if (hasImage && imageUri != null) {
-                Image(
-                    painter = rememberAsyncImagePainter(model = imageUri),
-                    contentDescription = "Selected Image",
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(bottom = 32.dp, top = 32.dp)
+            // Image preview section
+            ImagePreviewSection(
+                imageUri = imageUri,
+                modifier = Modifier.weight(1f)
+            )
+
+            // State-dependent content - reads ViewModel state late
+            UploadStateContent(
+                viewModel = viewModel,
+                onCameraClick = handleCameraClick,
+                onGalleryClick = handleGalleryClick,
+                onReset = handleReset,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        
+        // Permission Dialogs - only recompose when dialog state changes
+        PermissionDialogs(
+            showCameraDialog = showCameraPermissionDialog,
+            showStorageDialog = showStoragePermissionDialog,
+            showDeniedDialog = showPermissionDeniedDialog,
+            deniedMessage = deniedPermissionMessage,
+            onDismissCameraDialog = { showCameraPermissionDialog = false },
+            onDismissStorageDialog = { showStoragePermissionDialog = false },
+            onDismissDeniedDialog = { showPermissionDeniedDialog = false },
+            onConfirmCameraPermission = {
+                showCameraPermissionDialog = false
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            },
+            onConfirmStoragePermission = {
+                showStoragePermissionDialog = false
+                storagePermissionLauncher.launch(PermissionHandler.getStoragePermissions())
+            },
+            onOpenSettings = {
+                showPermissionDeniedDialog = false
+                context.openAppSettings()
+            }
+        )
+    }
+}
+
+
+/**
+ * Top app bar - extracted to prevent recomposition when other state changes
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CameraCaptureTopBar(
+    onNavigateToSettings: () -> Unit
+) {
+    TopAppBar(
+        title = { Text("OCR Image Extractor") },
+        actions = {
+            IconButton(onClick = onNavigateToSettings) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
-            } else {
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Capture or select an image to start.")
-                }
             }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+    )
+}
 
-            // Display UI based on upload state
-            when (val state = uiState) {
-                is UploadState.Idle -> {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Button(onClick = { handleCameraClick() }) {
-                            Text(text = "Take Picture")
-                        }
-                        Button(onClick = { handleGalleryClick() }) {
-                            Text(text = "Select Image")
-                        }
-                    }
-                }
-
-                is UploadState.Loading -> {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Uploading...")
-                    }
-                }
-
-                is UploadState.Success -> {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("Extracted Text: ${state.extractedText ?: "No text found."}")
-                        Button(onClick = {
-                            // Clean up previous file before resetting
-                            cleanupTempFile(imageFile)
-                            viewModel.resetState()
-                            imageUri = null
-                            imageFile = null
-                        }) {
-                            Text("Start Over")
-                        }
-                    }
-
-                }
-
-                is UploadState.Error -> {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("Error: ${state.message}", color = MaterialTheme.colorScheme.error)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(onClick = {
-                            // Clean up previous file before resetting
-                            cleanupTempFile(imageFile)
-                            viewModel.resetState()
-                            imageUri = null
-                            imageFile = null
-                        }) {
-                            Text("Try Again")
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Permission Dialogs
-        if (showCameraPermissionDialog) {
-            PermissionRationaleDialog(
-                title = "Camera Permission Required",
-                message = "This app needs camera permission to take photos for text extraction. Please grant camera permission to use this feature.",
-                onDismiss = { showCameraPermissionDialog = false },
-                onConfirm = {
-                    showCameraPermissionDialog = false
-                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                }
-            )
-        }
-        
-        if (showStoragePermissionDialog) {
-            PermissionRationaleDialog(
-                title = "Storage Permission Required",
-                message = "This app needs storage permission to access images from your gallery. Please grant storage permission to use this feature.",
-                onDismiss = { showStoragePermissionDialog = false },
-                onConfirm = {
-                    showStoragePermissionDialog = false
-                    val permissions = PermissionHandler.getStoragePermissions()
-                    storagePermissionLauncher.launch(permissions)
-                }
-            )
-        }
-        
-        if (showPermissionDeniedDialog) {
-            PermissionDeniedDialog(
-                message = deniedPermissionMessage,
-                onDismiss = { showPermissionDeniedDialog = false },
-                onOpenSettings = {
-                    showPermissionDeniedDialog = false
-                    context.openAppSettings()
-                }
-            )
+/**
+ * Image preview section - only recomposes when imageUri changes
+ */
+@Composable
+private fun ImagePreviewSection(
+    imageUri: Uri?,
+    modifier: Modifier = Modifier
+) {
+    if (imageUri != null) {
+        Image(
+            painter = rememberAsyncImagePainter(model = imageUri),
+            contentDescription = "Selected Image",
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp, top = 32.dp)
+        )
+    } else {
+        Box(
+            modifier = modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Capture or select an image to start.")
         }
     }
 }
 
 /**
- * Dialog to explain why permission is needed
+ * Upload state content - reads ViewModel state as late as possible
+ * Each state branch is a separate composable to minimize recomposition scope
  */
+@Composable
+private fun UploadStateContent(
+    viewModel: OCRViewModel,
+    onCameraClick: () -> Unit,
+    onGalleryClick: () -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Collect state with lifecycle awareness - state read happens here, late in the tree
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    
+    when (val state = uiState) {
+        is UploadState.Idle -> {
+            IdleStateContent(
+                onCameraClick = onCameraClick,
+                onGalleryClick = onGalleryClick,
+                modifier = modifier
+            )
+        }
+        is UploadState.Loading -> {
+            LoadingStateContent(modifier = modifier)
+        }
+        is UploadState.Success -> {
+            SuccessStateContent(
+                extractedText = state.extractedText,
+                onReset = onReset,
+                modifier = modifier
+            )
+        }
+        is UploadState.Error -> {
+            ErrorStateContent(
+                errorMessage = state.message,
+                onReset = onReset,
+                modifier = modifier
+            )
+        }
+    }
+}
+
+@Composable
+private fun IdleStateContent(
+    onCameraClick: () -> Unit,
+    onGalleryClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceAround,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Button(onClick = onCameraClick) {
+            Text(text = "Take Picture")
+        }
+        Button(onClick = onGalleryClick) {
+            Text(text = "Select Image")
+        }
+    }
+}
+
+@Composable
+private fun LoadingStateContent(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CircularProgressIndicator()
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Uploading...")
+    }
+}
+
+@Composable
+private fun SuccessStateContent(
+    extractedText: String?,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Extracted Text: ${extractedText ?: "No text found."}")
+        Button(onClick = onReset) {
+            Text("Start Over")
+        }
+    }
+}
+
+@Composable
+private fun ErrorStateContent(
+    errorMessage: String,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Error: $errorMessage", color = MaterialTheme.colorScheme.error)
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(onClick = onReset) {
+            Text("Try Again")
+        }
+    }
+}
+
+/**
+ * Permission dialogs container - isolated to prevent main content recomposition
+ */
+@Composable
+private fun PermissionDialogs(
+    showCameraDialog: Boolean,
+    showStorageDialog: Boolean,
+    showDeniedDialog: Boolean,
+    deniedMessage: String,
+    onDismissCameraDialog: () -> Unit,
+    onDismissStorageDialog: () -> Unit,
+    onDismissDeniedDialog: () -> Unit,
+    onConfirmCameraPermission: () -> Unit,
+    onConfirmStoragePermission: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    if (showCameraDialog) {
+        PermissionRationaleDialog(
+            title = "Camera Permission Required",
+            message = "This app needs camera permission to take photos for text extraction. Please grant camera permission to use this feature.",
+            onDismiss = onDismissCameraDialog,
+            onConfirm = onConfirmCameraPermission
+        )
+    }
+    
+    if (showStorageDialog) {
+        PermissionRationaleDialog(
+            title = "Storage Permission Required",
+            message = "This app needs storage permission to access images from your gallery. Please grant storage permission to use this feature.",
+            onDismiss = onDismissStorageDialog,
+            onConfirm = onConfirmStoragePermission
+        )
+    }
+    
+    if (showDeniedDialog) {
+        PermissionDeniedDialog(
+            message = deniedMessage,
+            onDismiss = onDismissDeniedDialog,
+            onOpenSettings = onOpenSettings
+        )
+    }
+}
+
 @Composable
 private fun PermissionRationaleDialog(
     title: String,
@@ -393,9 +474,6 @@ private fun PermissionRationaleDialog(
     )
 }
 
-/**
- * Dialog shown when permission is permanently denied
- */
 @Composable
 private fun PermissionDeniedDialog(
     message: String,
@@ -419,9 +497,6 @@ private fun PermissionDeniedDialog(
     )
 }
 
-/**
- * Extension function to open app settings
- */
 fun Context.openAppSettings() {
     val intent = android.content.Intent(
         android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -438,43 +513,30 @@ fun Context.createImageFile(): File {
     return File.createTempFile(imageFileName, ".jpg", storageDir)
 }
 
-/**
- * Creates a temporary file from a content URI.
- * This is useful for handling images selected from the gallery.
- * @throws Exception if file creation or copying fails
- */
 fun Context.createFileFromUri(uri: Uri): File {
     val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
     val fileName = "JPEG_${timeStamp}"
     val tempFile = File.createTempFile(fileName, ".jpg", cacheDir)
 
     try {
-        // Copy the content from the URI's input stream to the temporary file
         contentResolver.openInputStream(uri)?.use { inputStream ->
             FileOutputStream(tempFile).use { outputStream ->
                 inputStream.copyTo(outputStream)
             }
         } ?: throw IllegalStateException("Unable to open input stream for URI: $uri")
-
         return tempFile
     } catch (e: Exception) {
-        // Clean up file if copy fails
         tempFile.delete()
         throw e
     }
 }
 
-/**
- * Checks if network connectivity is available
- * @return true if connected to network, false otherwise
- */
 fun Context.isNetworkAvailable(): Boolean {
     val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         val network = connectivityManager.activeNetwork ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     } else {

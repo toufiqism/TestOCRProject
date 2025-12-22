@@ -1,62 +1,36 @@
 package com.example.testocrproject
 
-import android.app.Application
-import android.content.Context
-import android.graphics.Bitmap
 import android.util.Log
-import androidx.compose.runtime.mutableStateOf
-import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
-import java.io.FileOutputStream
 
-class OCRViewModel() : ViewModel() {
+class OCRViewModel : ViewModel() {
 
-    //    private val ocr = TesseractOCR(appContext)
-//    var recognizedText = mutableStateOf("")
-//
-//    init {
-//        copyTrainedData()
-//        ocr.init(appContext.filesDir.absolutePath)
-//    }
-//
-//    fun processImage(bitmap: Bitmap) {
-//        viewModelScope.launch(Dispatchers.Default) {
-//            val text = ocr.doOCR(bitmap)
-//            recognizedText.value = text
-//        }
-//    }
-//
-//    override fun onCleared() {
-//        super.onCleared()
-//        ocr.destroy()
-//    }
-//
-//    private fun copyTrainedData() {
-//        val tessFolder = File(appContext.filesDir, "tessdata")
-//        if (!tessFolder.exists()) tessFolder.mkdirs()
-//
-//        val trainedData = File(tessFolder, "ben.traineddata")
-//        if (!trainedData.exists()) {
-//            appContext.assets.open("tessdata/ben.traineddata").use { input ->
-//                FileOutputStream(trainedData).use { output ->
-//                    input.copyTo(output)
-//                }
-//            }
-//        }
-//    }
-//
     private val _uiState = MutableStateFlow<UploadState>(UploadState.Idle)
-    val uiState = _uiState.asStateFlow()
+    val uiState: StateFlow<UploadState> = _uiState.asStateFlow()
+
+    // Granular state flows for selective recomposition
+    val isLoading = _uiState.map { it is UploadState.Loading }
+    val isIdle = _uiState.map { it is UploadState.Idle }
+    val isSuccess = _uiState.map { it is UploadState.Success }
+    val isError = _uiState.map { it is UploadState.Error }
+    
+    val extractedText = _uiState.map { state ->
+        (state as? UploadState.Success)?.extractedText
+    }
+    
+    val errorMessage = _uiState.map { state ->
+        (state as? UploadState.Error)?.message
+    }
 
     fun uploadImage(imageFile: File, baseUrl: String) {
         viewModelScope.launch {
@@ -96,10 +70,10 @@ class OCRViewModel() : ViewModel() {
     }
 }
 
-// 4. Define UI State for the upload process
+// Define UI State for the upload process
 sealed interface UploadState {
-    object Idle : UploadState
-    object Loading : UploadState
+    data object Idle : UploadState
+    data object Loading : UploadState
     data class Success(val extractedText: String?) : UploadState
     data class Error(val message: String) : UploadState
 }

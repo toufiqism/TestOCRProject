@@ -24,7 +24,6 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (isGranted) {
                 Log.d("Permission", "Camera permission granted.")
-                // Recomposition will be triggered by the state change in the composable
             } else {
                 Log.d("Permission", "Camera permission denied.")
             }
@@ -40,45 +39,68 @@ class MainActivity : ComponentActivity() {
 
 /**
  * Main App Composable with navigation and theme management
+ * Optimized for minimal recomposition using lambda-based state reading
  */
 @Composable
 fun OCRApp() {
     val context = LocalContext.current
     val preferencesManager = remember { PreferencesManager.getInstance(context) }
-    val systemInDarkTheme = isSystemInDarkTheme()
     
     // State to trigger recomposition when theme changes
-    var themeVersion by remember { mutableStateOf(0) }
+    var themeVersion by remember { mutableIntStateOf(0) }
     var currentScreen by remember { mutableStateOf(Screen.Camera) }
     
-    // Determine the dark theme based on user preference
-    val themeMode = remember(themeVersion) { preferencesManager.getThemeMode() }
-    val darkTheme = when (themeMode) {
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-        ThemeMode.SYSTEM -> systemInDarkTheme
-    }
-    
-    TestOCRProjectTheme(darkTheme = darkTheme) {
+    // Theme wrapper that reads state as late as possible
+    ThemedContent(
+        preferencesManager = preferencesManager,
+        themeVersion = themeVersion
+    ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            when (currentScreen) {
-                Screen.Camera -> {
-                    CameraCaptureScreen(
-                        onNavigateToSettings = { currentScreen = Screen.Settings }
-                    )
-                }
-                Screen.Settings -> {
-                    SettingsScreen(
-                        onNavigateBack = { currentScreen = Screen.Camera },
-                        onThemeChanged = { themeVersion++ }
-                    )
+            // Use key to prevent unnecessary recomposition when switching screens
+            key(currentScreen) {
+                when (currentScreen) {
+                    Screen.Camera -> {
+                        CameraCaptureScreen(
+                            onNavigateToSettings = { currentScreen = Screen.Settings }
+                        )
+                    }
+                    Screen.Settings -> {
+                        SettingsScreen(
+                            onNavigateBack = { currentScreen = Screen.Camera },
+                            onThemeChanged = { themeVersion++ }
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * Wrapper composable that handles theme determination
+ * Reads theme state as late as possible to minimize recomposition scope
+ */
+@Composable
+private fun ThemedContent(
+    preferencesManager: PreferencesManager,
+    themeVersion: Int,
+    content: @Composable () -> Unit
+) {
+    val systemInDarkTheme = isSystemInDarkTheme()
+    
+    // Read theme mode only when themeVersion changes
+    val darkTheme = remember(themeVersion, systemInDarkTheme) {
+        when (preferencesManager.getThemeMode()) {
+            ThemeMode.LIGHT -> false
+            ThemeMode.DARK -> true
+            ThemeMode.SYSTEM -> systemInDarkTheme
+        }
+    }
+    
+    TestOCRProjectTheme(darkTheme = darkTheme, content = content)
 }
 
 /**
