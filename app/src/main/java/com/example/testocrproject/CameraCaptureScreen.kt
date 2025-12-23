@@ -43,6 +43,10 @@ fun CameraCaptureScreen(
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var imageFile by remember { mutableStateOf<File?>(null) }
     
+    // Image editor state
+    var showImageEditor by remember { mutableStateOf(false) }
+    var pendingImageUri by remember { mutableStateOf<Uri?>(null) }
+    
     // Permission dialogs state - kept minimal
     var showCameraPermissionDialog by remember { mutableStateOf(false) }
     var showStoragePermissionDialog by remember { mutableStateOf(false) }
@@ -105,7 +109,11 @@ fun CameraCaptureScreen(
     ) { success ->
         if (success) {
             Toast.makeText(context, "Image Captured!", Toast.LENGTH_SHORT).show()
-            imageFile?.let(uploadWithNetworkCheck)
+            // Show image editor instead of uploading directly
+            imageUri?.let {
+                pendingImageUri = it
+                showImageEditor = true
+            }
         } else {
             cleanupTempFile(imageFile)
             imageUri = null
@@ -119,13 +127,9 @@ fun CameraCaptureScreen(
     ) { uri: Uri? ->
         uri?.let {
             imageUri = it
-            try {
-                val file = context.createFileFromUri(it)
-                imageFile = file
-                uploadWithNetworkCheck(file)
-            } catch (e: Exception) {
-                Toast.makeText(context, "Failed to load image: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+            // Show image editor instead of uploading directly
+            pendingImageUri = it
+            showImageEditor = true
         }
     }
 
@@ -187,6 +191,29 @@ fun CameraCaptureScreen(
             imageUri = null
             imageFile = null
         }
+    }
+
+    // Show image editor if an image is pending
+    if (showImageEditor && pendingImageUri != null) {
+        ImageEditorScreen(
+            imageUri = pendingImageUri!!,
+            onImageEdited = { editedFile ->
+                showImageEditor = false
+                imageFile = editedFile
+                imageUri = Uri.fromFile(editedFile)
+                pendingImageUri = null
+                uploadWithNetworkCheck(editedFile)
+            },
+            onCancel = {
+                showImageEditor = false
+                pendingImageUri = null
+                // Clean up camera file if it was from camera
+                cleanupTempFile(imageFile)
+                imageUri = null
+                imageFile = null
+            }
+        )
+        return
     }
 
     Scaffold(

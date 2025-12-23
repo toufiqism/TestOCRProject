@@ -102,9 +102,6 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.logging.interceptor)
 
-    //more icons
-    implementation (libs.androidx.material.icons.extended)
-
     //coil
     implementation(libs.coil.compose)
 
